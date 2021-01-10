@@ -6,6 +6,12 @@ cdef enum Subarray:
 cdef int GRAIL_STATIC_EXT_BUFFER_LEN = 512
 
 
+cdef list arraycopy(list array, int start, list dest, int destPos, int length):
+    cdef int i
+    for i in range(length):
+        dest[destPos + i] = array[start + i]
+
+
 cdef class GrailSort:
     cdef list extBuffer
     cdef int extBufferLen
@@ -50,8 +56,9 @@ cdef class GrailSort:
     
     @staticmethod
     cdef int grailBinarySearchLeft(list array, int start, int length, object target):
-        cdef int left = 0
-        cdef int right = length
+        cdef:
+            int left = 0
+            int right = length
 
         cdef int middle
         while left < right:
@@ -65,8 +72,9 @@ cdef class GrailSort:
 
     @staticmethod
     cdef int grailBinarySearchRight(list array, int start, int length, object target):
-        cdef int left = 0
-        cdef int right = length
+        cdef:
+            int left = 0
+            int right = length
 
         cdef int middle
         while left < right:
@@ -149,9 +157,10 @@ cdef class GrailSort:
     
     @staticmethod
     cdef int grailCollectKeys(list array, int start, int length, int idealKeys):
-        cdef int keysFound = 1
-        cdef int firstKey = 0
-        cdef int currKey = 1
+        cdef:
+            int keysFound = 1
+            int firstKey = 0
+            int currKey = 1
 
         cdef int insertPos
         while currKey < length and keysFound < idealKeys:
@@ -169,6 +178,61 @@ cdef class GrailSort:
         
         GrailSort.grailRotate(array, start, firstKey, keysFound)
         return keysFound
+    
+    @staticmethod
+    cdef void grailPairwiseWrites(list array, int start, int length):
+        cdef int index, left, right
+        for index in range(1, length, 2):
+            left = start + index - 1
+            right = start + index
+
+            if array[left] > array[right]:
+                array[left - 2] = array[right]
+                array[right - 2] = array[left]
+            else:
+                array[left - 2] = array[left]
+                array[right - 2] = array[right]
+
+        left = start + index - 1
+        if left < start + length:
+            array[left - 2] = array[left]
+
+    @staticmethod
+    cdef void grailMergeOutOfPlace(list array, int start, int leftLen, int rightLen, int bufferOffset):
+        pass
+
+    cdef void grailBuildOutOfPlace(self, list array, int start, int length, int bufferLen, int extLen):
+        arraycopy(array, start - extLen, self.extBuffer, 0, extLen)
+
+        GrailSort.grailPairwiseWrites(array, start, length)
+        start -= 2
+
+        cdef int mergeLen, fullMerge, mergeIndex, mergeEnd, bufferOffset
+        mergeLen = 2
+        while mergeLen < extLen:
+            fullMerge = 2 * mergeLen
+
+            mergeEnd = start + length - fullMerge
+            bufferOffset = mergeLen
+
+            for mergeIndex from start <= mergeIndex <= mergeEnd by fullMerge:
+                GrailSort.grailMergeOutOfPlace(array, mergeIndex, mergeLen, mergeLen, bufferOffset)
+
+            mergeLen *= 2
+    
+    cdef void grailBuildBlocks(self, list array, int start, int length, int bufferLen):
+        cdef int extLen
+        if self.extBuffer is not None:
+            if bufferLen < self.extBufferLen:
+                extLen = bufferLen
+            else:
+                extLen = 1
+                while extLen * 2 <= self.extBufferLen:
+                    extLen *= 2
+            
+            self.grailBuildOutOfPlace(array, start, length, bufferLen, extLen)
+        else:
+            pass
 
     cpdef void grailCommonSort(self, list array, int start, int length, list extBuffer, int extBufferLen):
         if length < 16:
@@ -200,3 +264,17 @@ cdef class GrailSort:
                     keyLen //= 2
         else:
             idealBuffer = True
+
+        cdef:
+            int bufferEnd = blockLen + keyLen
+            int subarrayLen
+        if idealBuffer:
+            subarrayLen = blockLen
+        else:
+            subarrayLen = keyLen
+
+        if idealBuffer and extBuffer is not None:
+            self.extBuffer = extBuffer
+            self.extBufferLen = extBufferLen
+        
+        self.grailBuildBlocks(array, start + bufferEnd, length - bufferEnd, subarrayLen)
